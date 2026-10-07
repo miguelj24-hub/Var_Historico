@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from config import MIN_RETURN_OBSERVATIONS
+from config import DEFAULT_PERIODS_PER_YEAR, MIN_RETURN_OBSERVATIONS
 from loaders import CleanAsset, DataValidationError
 
 
@@ -28,6 +28,43 @@ class VarResult:
     var_fraction: float
     confidence: float
     capital: float
+
+
+@dataclass
+class PortfolioStatistics:
+    mean_daily_return: float
+    annualized_return: float | None
+    daily_variance: float
+    daily_volatility: float
+    annual_volatility: float
+    periods_per_year: int
+
+
+def calculate_portfolio_statistics(
+    result: VarResult, periods_per_year: int = DEFAULT_PERIODS_PER_YEAR,
+) -> PortfolioStatistics:
+    """Estadísticos de los mismos rendimientos LN ponderados usados por el VaR.
+
+    Varianza muestral (n−1). El rendimiento anualizado es EXP(N × media)−1.
+    Cada observación se supone una sesión; no se infiere frecuencia de las fechas.
+    """
+    if (isinstance(periods_per_year, (bool, np.bool_))
+            or not isinstance(periods_per_year, (int, np.integer))
+            or periods_per_year <= 0):
+        raise DataValidationError("Las sesiones por año deben ser un entero positivo.")
+    returns = result.scenarios["Rendimiento ponderado"].to_numpy(dtype=float)
+    if len(returns) < 2 or not np.isfinite(returns).all():
+        raise DataValidationError("Se necesitan al menos dos rendimientos finitos para los indicadores.")
+    mean = float(np.mean(returns))
+    variance = float(np.var(returns, ddof=1))
+    volatility = float(np.sqrt(variance))
+    annual_volatility = volatility * float(np.sqrt(periods_per_year))
+    with np.errstate(over="ignore", invalid="ignore"):
+        annual_return = float(np.expm1(mean * periods_per_year))
+    if not np.isfinite(annual_return):
+        annual_return = None
+    return PortfolioStatistics(mean, annual_return, variance, volatility,
+                               annual_volatility, int(periods_per_year))
 
 
 def align_assets(assets: list[CleanAsset]) -> Alignment:

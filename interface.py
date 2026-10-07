@@ -10,8 +10,9 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-from config import DEFAULT_CAPITAL, DEFAULT_CONFIDENCE, SMALL_SAMPLE_THRESHOLD
-from core import align_assets, calculate_var
+from config import (DEFAULT_CAPITAL, DEFAULT_CONFIDENCE, DEFAULT_PERIODS_PER_YEAR,
+                    SMALL_SAMPLE_THRESHOLD)
+from core import align_assets, calculate_portfolio_statistics, calculate_var
 from loaders import (DataValidationError, clean_asset, detect_columns, detect_header,
                      infer_ticker, is_excel_date, parse_dates, read_raw, sheet_names, with_header)
 
@@ -34,10 +35,11 @@ def csv_bytes(frame: pd.DataFrame, index: bool = True) -> bytes:
 
 def build_context() -> dict:
     """Se ejecuta en el entrypoint para conservar los controles entre páginas."""
-    context = {"errors": [], "assets": [], "alignment": None, "result": None, "currency": "u.m."}
+    context = {"errors": [], "assets": [], "alignment": None, "result": None,
+               "statistics": None, "currency": "u.m."}
     st.sidebar.title("VaR histórico")
     st.sidebar.caption("Precios, ponderaciones y riesgo del portafolio")
-    demo = st.sidebar.checkbox("Usar Excel DEMO", key="use_demo")
+    demo = st.sidebar.checkbox("Usar ejemplo del Excel", key="use_demo")
     uploads = st.sidebar.file_uploader(
         "1. Carga uno o varios archivos", type=["xlsx", "csv", "cvc"],
         accept_multiple_files=True, key="uploads",
@@ -45,7 +47,7 @@ def build_context() -> dict:
     )
     if demo:
         sources = [(p.name, p.read_bytes()) for p in sorted((ROOT / "examples").glob("*.csv"))]
-        st.sidebar.caption("Ejemplo: los 251 precios por activo de Excel DEMO.")
+        st.sidebar.caption("Ejemplo: los 251 precios por activo de tu Excel.")
     else:
         sources = [(file.name, file.getvalue()) for file in uploads]
     if not sources:
@@ -194,10 +196,19 @@ def build_context() -> dict:
         st.sidebar.success("Ponderaciones: 100.00%")
     confidence_pct = st.sidebar.slider("Confianza (%)", min_value=90.0, max_value=99.9,
                                        value=DEFAULT_CONFIDENCE, step=0.1, key="confidence")
+    with st.sidebar.expander("Anualización"):
+        periods_per_year = st.number_input(
+            "Sesiones por año", min_value=1, max_value=366,
+            value=DEFAULT_PERIODS_PER_YEAR, step=1, key="annualization_periods",
+            help="252 para una referencia bursátil; 365 si tus precios son diarios, incluidos fines de semana.",
+        )
     context["weights"] = weights
     context["capital"] = capital
     try:
-        context["result"] = calculate_var(alignment.prices, weights, capital, confidence_pct / 100.0)
+        result = calculate_var(alignment.prices, weights, capital, confidence_pct / 100.0)
+        statistics = calculate_portfolio_statistics(result, periods_per_year)
+        context["result"] = result
+        context["statistics"] = statistics
     except DataValidationError as exc:
         context["errors"].append(str(exc))
     return context
@@ -267,6 +278,34 @@ def render_results(context: dict) -> None:
     if not context["alignment"].removed_dates.empty:
         st.caption("Cada rendimiento compara dos fechas comunes consecutivas. Al descartar fechas, "
                    "un intervalo puede cubrir más de una sesión. Los extremos se muestran en Datos.")
+    stats = context["statistics"]
+    st.subheader("Rendimiento y riesgo del portafolio")
+    statistics_table = pd.DataFrame({
+        "Indicador": ["E(rp). Diario", "E(rp). Anual", "Var diario",
+                      "Desv. Std diaria", "Desv. Std Anual"],
+        "Valor": [f"{stats.mean_daily_return:.5%}",
+                  "N/D" if stats.annualized_return is None else f"{stats.annualized_return:.2%}",
+                  f"{stats.daily_variance:.10g}", f"{stats.daily_volatility:.2%}",
+                  f"{stats.annual_volatility:.2%}"],
+    })
+    st.dataframe(statistics_table, hide_index=True, width="stretch")
+    st.caption(f"Calculado con los rendimientos LN ponderados del VaR. "
+               f"{stats.periods_per_year} sesiones/año. "
+               "Var diario es la varianza muestral, expresada en rendimientos al cuadrado.")
+    st.caption("E(rp). Diario es la media histórica LN. E(rp). Anual es su equivalente compuesto: "
+               "EXP(media × sesiones/año) − 1. La anualización supone observaciones diarias "
+               "y ausencia de autocorrelación para la volatilidad; es una referencia histórica.")
+    if stats.annualized_return is None:
+        st.info("Rendimiento anual: N/D porque la anualización supera el rango numérico.")
+    with st.expander("Fórmulas de rendimiento y riesgo"):
+        st.markdown("- `r_t = suma(ponderación_i / 100 × LN(P_i,t / P_i,t−1))`.\n"
+                    "- `E(rp). Diario = PROMEDIO(r_t)`.\n"
+                    "- `E(rp). Anual = EXP(E(rp). Diario × N) − 1`.\n"
+                    "- `Var diario = VAR.S(r_t)`.\n"
+                    "- `Desv. Std diaria = DESVEST.M(r_t)`.\n"
+                    "- `Desv. Std Anual = Desv. Std diaria × RAÍZ(N)`.")
+        st.caption("N es el número de sesiones por año. Las tasas de estas fórmulas son fracciones: 5% = 0.05. "
+                   "La media LN ponderada aproxima el rendimiento del portafolio, igual que en el VaR.")
     st.subheader("Composición del portafolio")
     composition = pd.DataFrame({"Ticker": result.positions.index,
                                 "Ponderación (%)": [context["weights"][t] for t in result.positions.index],
@@ -292,7 +331,7 @@ def render_results(context: dict) -> None:
         st.subheader("Resultados a lo largo del tiempo")
         st.line_chart(result.scenarios[["Ganancia o pérdida aproximada"]], height=260)
         st.caption("Importes aproximados obtenidos al aplicar los rendimientos logarítmicos a los montos invertidos.")
-    with st.expander("Metodología del VaR histórico"):
+    with st.expander("Cómo se calcula, igual que en el Excel"):
         st.markdown("1. Se ordenan los precios del más antiguo al más reciente y se conservan las fechas comunes.\n"
                     "2. Rendimiento por activo: `LN(precio actual / precio anterior)`.\n"
                     "3. Monto por activo: `capital × ponderación / 100`.\n"
@@ -305,6 +344,12 @@ def render_results(context: dict) -> None:
         "Confianza": result.confidence, "Capital": result.capital, "Unidad": unit,
         "Escenarios": len(result.log_returns), "Percentil de resultados": result.percentile_pnl,
         "VaR monetario": result.var_amount, "VaR fracción": result.var_fraction,
+        "E(rp). Diario": stats.mean_daily_return,
+        "E(rp). Anual": stats.annualized_return,
+        "Var diario": stats.daily_variance,
+        "Desv. Std diaria": stats.daily_volatility,
+        "Desv. Std Anual": stats.annual_volatility,
+        "Sesiones por año": stats.periods_per_year,
     }])
     st.download_button("Descargar resumen CSV", csv_bytes(summary, False), "resumen_var.csv", "text/csv")
 
