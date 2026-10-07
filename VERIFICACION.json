@@ -1,0 +1,20 @@
+{
+  "pruebas_automatizadas": 19,
+  "resultado": "19 de 19 aprobadas",
+  "regresion_excel": {
+    "observaciones_precios": 251,
+    "rendimientos": 250,
+    "var_monetario": 9.669051610255686,
+    "var_fraccion": 0.03223017203418562
+  },
+  "servidor_streamlit": "HTTP 200: ok",
+  "interfaz": "AppTest: ejemplo, cambio de capital, navegación entre páginas y validación de ponderaciones",
+  "revision_visual": "No realizada: Chromium no disponible; la descarga devolvió un archivo ZIP inválido.",
+  "versiones": {
+    "python": "3.12",
+    "streamlit": "1.65.0",
+    "pandas": "2.2.3",
+    "numpy": "2.3.5",
+    "openpyxl": "3.1.5"
+  }
+}
