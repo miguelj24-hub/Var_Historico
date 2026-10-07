@@ -96,7 +96,22 @@ def with_header(raw: pd.DataFrame, header_row: int) -> pd.DataFrame:
     return frame.dropna(how="all")
 
 
-def parse_dates(values: pd.Series, day_first: bool = True) -> pd.Series:
+def is_excel_date(value: object) -> bool:
+    """Identifica fechas ya convertidas por Excel, incluidos sus números de serie."""
+    if pd.isna(value) or isinstance(value, bool):
+        return False
+    if isinstance(value, (datetime, date, pd.Timestamp)):
+        return True
+    return isinstance(value, (float, int, np.number)) and 20000 <= float(value) <= 100000
+
+
+def parse_dates(values: pd.Series, day_first: bool = True,
+                swap_excel_dates: bool = False) -> pd.Series:
+    """El formato resuelve textos ambiguos; la corrección de Excel es opcional.
+
+    Solo se intercambian fechas almacenadas con día <= 12. Las fechas ISO,
+    los textos y los días mayores de 12 no se intercambian.
+    """
     def parse(value: object) -> pd.Timestamp:
         if pd.isna(value):
             return pd.NaT
@@ -120,6 +135,8 @@ def parse_dates(values: pd.Series, day_first: bool = True) -> pd.Series:
             parsed = pd.Timestamp(parsed)
             if parsed.tzinfo is not None:
                 parsed = parsed.tz_localize(None)
+            if swap_excel_dates and is_excel_date(value) and parsed.day <= 12:
+                parsed = parsed.replace(month=parsed.day, day=parsed.month)
             return parsed.normalize()
         except (ValueError, TypeError, OverflowError):
             return pd.NaT
@@ -182,13 +199,14 @@ def infer_ticker(filename: str, price_column: str, frame: pd.DataFrame) -> str:
 
 
 def clean_asset(frame: pd.DataFrame, date_column: str, price_column: str,
-                ticker: str, source: str, day_first: bool = True, decimal: str = ".") -> CleanAsset:
+                ticker: str, source: str, day_first: bool = True, decimal: str = ".",
+                swap_excel_dates: bool = False) -> CleanAsset:
     ticker = ticker.strip().upper()
     if not ticker:
         raise DataValidationError("El ticker no puede estar vacío.")
     if date_column == price_column or date_column not in frame or price_column not in frame:
         raise DataValidationError("Selecciona columnas distintas y existentes para fecha y precio.")
-    dates = parse_dates(frame[date_column], day_first)
+    dates = parse_dates(frame[date_column], day_first, swap_excel_dates)
     prices = parse_prices(frame[price_column], decimal)
     valid = dates.notna() & np.isfinite(prices) & prices.gt(0)
     invalid = pd.DataFrame({

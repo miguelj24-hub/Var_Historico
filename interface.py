@@ -13,7 +13,7 @@ import streamlit as st
 from config import DEFAULT_CAPITAL, DEFAULT_CONFIDENCE, SMALL_SAMPLE_THRESHOLD
 from core import align_assets, calculate_var
 from loaders import (DataValidationError, clean_asset, detect_columns, detect_header,
-                     infer_ticker, read_raw, sheet_names, with_header)
+                     infer_ticker, is_excel_date, parse_dates, read_raw, sheet_names, with_header)
 
 ROOT = Path(__file__).resolve().parent
 
@@ -52,8 +52,14 @@ def build_context() -> dict:
         return context
 
     with st.sidebar.expander("Formato de fechas y números", expanded=False):
-        day_first = st.checkbox("Fechas día/mes/año", value=True, key="day_first",
-                                help="Desactívalo para mes/día/año. Las fechas ISO se reconocen igualmente.")
+        date_format = st.selectbox(
+            "Formato de fechas", ["dd/mm/aaaa", "mm/dd/aaaa"], key="date_format",
+            index=0 if st.session_state.get("day_first", True) else 1,
+            help="Determina cómo interpretar fechas ambiguas escritas como texto. "
+                 "Las fechas ISO (aaaa-mm-dd) se reconocen en ambos modos.",
+        )
+        day_first = date_format == "dd/mm/aaaa"
+        st.caption("10/02/2026 = " + ("10 de febrero de 2026." if day_first else "2 de octubre de 2026."))
         decimal = st.selectbox("Separador decimal de precios", [".", ","], key="decimal")
         st.caption("Se interpreta el otro símbolo como separador de miles. No incluyas símbolos de moneda.")
 
@@ -79,6 +85,41 @@ def build_context() -> dict:
                 columns = list(frame.columns)
                 date_col = st.selectbox("Columna de fecha", columns, index=columns.index(suggested_date),
                                         key=f"{token}_{header}_date")
+                original_dates = parse_dates(frame[date_col], day_first)
+                swap_excel_dates = False
+                has_excel_dates = (Path(name).suffix.lower() == ".xlsx"
+                                   and frame[date_col].map(is_excel_date).any())
+                if has_excel_dates:
+                    swap_excel_dates = st.checkbox(
+                        "Corregir fechas de Excel con día y mes invertidos",
+                        value=False, key=f"{token}_{header}_{date_col}_swap_excel_dates",
+                        help="Actívalo si Excel ya convirtió incorrectamente las fechas. "
+                             "Intercambia día y mes cuando ambos son de 1 a 12. "
+                             "Los textos se interpretan mediante el formato elegido arriba.",
+                    )
+                    corrected_dates = parse_dates(frame[date_col], day_first, True)
+                    changed = int((original_dates.notna() & corrected_dates.notna()
+                                   & original_dates.ne(corrected_dates)).sum())
+                    valid_original = original_dates.dropna()
+                    valid_corrected = corrected_dates.dropna()
+                    original_ordered = (valid_original.is_monotonic_increasing
+                                        or valid_original.is_monotonic_decreasing)
+                    corrected_ordered = (valid_corrected.is_monotonic_increasing
+                                         or valid_corrected.is_monotonic_decreasing)
+                    if changed and len(valid_original) >= 3 and not original_ordered and corrected_ordered:
+                        if not swap_excel_dates:
+                            st.warning("Posible día y mes invertidos: al intercambiarlos, las fechas "
+                                       "recuperan una secuencia cronológica. Revisa la vista previa y "
+                                       "activa la corrección si corresponde a tu archivo.")
+                    if swap_excel_dates:
+                        st.info(f"Corrección aplicada a {changed:,} fechas de Excel.")
+                interpreted_dates = (corrected_dates if swap_excel_dates else original_dates)
+                preview = pd.DataFrame({
+                    "Fecha original": frame[date_col].astype(str).str.replace(" 00:00:00", "", regex=False),
+                    "Fecha usada": interpreted_dates.dt.strftime("%Y-%m-%d").fillna("Inválida"),
+                }).head(5)
+                st.caption("Vista previa: la fecha usada se muestra como aaaa-mm-dd.")
+                st.dataframe(preview, hide_index=True, width="stretch")
                 options = [c for c in columns if c != date_col]
                 price_cols = st.multiselect("Columnas de precios a incluir", options,
                                             default=[c for c in suggested_prices if c in options],
@@ -90,7 +131,8 @@ def build_context() -> dict:
                 for col in price_cols:
                     ticker = st.text_input(f"Ticker para {col}", value=infer_ticker(name, col, frame),
                                            key=f"{token}_{header}_{col}_ticker")
-                    asset = clean_asset(frame, date_col, col, ticker, f"{name} / {sheet}", day_first, decimal)
+                    asset = clean_asset(frame, date_col, col, ticker, f"{name} / {sheet}",
+                                        day_first, decimal, swap_excel_dates)
                     assets.append(asset)
                     st.success(f"{asset.ticker}: fechas y precios válidos ({len(asset.prices):,} fechas).")
                     if len(asset.invalid_rows):
