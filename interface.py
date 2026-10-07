@@ -37,7 +37,7 @@ def build_context() -> dict:
     context = {"errors": [], "assets": [], "alignment": None, "result": None, "currency": "u.m."}
     st.sidebar.title("VaR histórico")
     st.sidebar.caption("Precios, ponderaciones y riesgo del portafolio")
-    demo = st.sidebar.checkbox("Usar ejemplo del Excel", key="use_demo")
+    demo = st.sidebar.checkbox("Usar Excel DEMO", key="use_demo")
     uploads = st.sidebar.file_uploader(
         "1. Carga uno o varios archivos", type=["xlsx", "csv", "cvc"],
         accept_multiple_files=True, key="uploads",
@@ -45,7 +45,7 @@ def build_context() -> dict:
     )
     if demo:
         sources = [(p.name, p.read_bytes()) for p in sorted((ROOT / "examples").glob("*.csv"))]
-        st.sidebar.caption("Ejemplo: los 251 precios por activo de tu Excel.")
+        st.sidebar.caption("Ejemplo: los 251 precios por activo de Excel DEMO.")
     else:
         sources = [(file.name, file.getvalue()) for file in uploads]
     if not sources:
@@ -292,7 +292,7 @@ def render_results(context: dict) -> None:
         st.subheader("Resultados a lo largo del tiempo")
         st.line_chart(result.scenarios[["Ganancia o pérdida aproximada"]], height=260)
         st.caption("Importes aproximados obtenidos al aplicar los rendimientos logarítmicos a los montos invertidos.")
-    with st.expander("Cómo se calcula, igual que en el Excel"):
+    with st.expander("Metodología del VaR histórico"):
         st.markdown("1. Se ordenan los precios del más antiguo al más reciente y se conservan las fechas comunes.\n"
                     "2. Rendimiento por activo: `LN(precio actual / precio anterior)`.\n"
                     "3. Monto por activo: `capital × ponderación / 100`.\n"
