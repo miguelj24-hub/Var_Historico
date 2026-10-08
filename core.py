@@ -38,6 +38,8 @@ class PortfolioStatistics:
     daily_volatility: float
     annual_volatility: float
     periods_per_year: int
+    daily_cv: float | None
+    annual_cv: float | None
 
 
 def calculate_portfolio_statistics(
@@ -63,8 +65,19 @@ def calculate_portfolio_statistics(
         annual_return = float(np.expm1(mean * periods_per_year))
     if not np.isfinite(annual_return):
         annual_return = None
+
+    def coefficient_of_variation(std: float, expected_return: float | None) -> float | None:
+        # Conserva el signo del rendimiento; no sustituye la media por su absoluto.
+        if expected_return is None or np.isclose(expected_return, 0, rtol=0, atol=1e-12):
+            return None
+        with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+            coefficient = float(np.divide(std, expected_return))
+        return coefficient if np.isfinite(coefficient) else None
+
+    daily_cv = coefficient_of_variation(volatility, mean)
+    annual_cv = coefficient_of_variation(annual_volatility, annual_return)
     return PortfolioStatistics(mean, annual_return, variance, volatility,
-                               annual_volatility, int(periods_per_year))
+                               annual_volatility, int(periods_per_year), daily_cv, annual_cv)
 
 
 def align_assets(assets: list[CleanAsset]) -> Alignment:
