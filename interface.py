@@ -343,7 +343,7 @@ def render_results(context: dict) -> None:
         st.subheader("Resultados a lo largo del tiempo")
         st.line_chart(result.scenarios[["Ganancia o pérdida aproximada"]], height=260)
         st.caption("Importes aproximados obtenidos al aplicar los rendimientos logarítmicos a los montos invertidos.")
-    with st.expander("Cómo se calcula, igual que en el Excel"):
+    with st.expander("Metodología del VaR histórico"):
         st.markdown("1. Se ordenan los precios del más antiguo al más reciente y se conservan las fechas comunes.\n"
                     "2. Rendimiento por activo: `LN(precio actual / precio anterior)`.\n"
                     "3. Monto por activo: `capital × ponderación / 100`.\n"
