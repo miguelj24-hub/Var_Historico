@@ -282,12 +282,11 @@ def render_results(context: dict) -> None:
     st.subheader("Rendimiento y riesgo del portafolio")
     statistics_table = pd.DataFrame({
         "Indicador": ["E(rp). Diario", "E(rp). Anual", "Var diario",
-                      "Desv. Std diaria", "Desv. Std Anual", "CV diario", "CV anual"],
+                      "Desv. Std diaria", "Desv. Std Anual", "CV anual"],
         "Valor": [f"{stats.mean_daily_return:.5%}",
                   "N/D" if stats.annualized_return is None else f"{stats.annualized_return:.2%}",
                   f"{stats.daily_variance:.10g}", f"{stats.daily_volatility:.2%}",
                   f"{stats.annual_volatility:.2%}",
-                  "N/D" if stats.daily_cv is None else f"{stats.daily_cv:.2%}",
                   "N/D" if stats.annual_cv is None else f"{stats.annual_cv:.2%}"],
     })
     st.dataframe(statistics_table, hide_index=True, width="stretch")
@@ -299,11 +298,10 @@ def render_results(context: dict) -> None:
                "y ausencia de autocorrelación para la volatilidad; es una referencia histórica.")
     if stats.annualized_return is None:
         st.info("Rendimiento anual: N/D porque la anualización supera el rango numérico.")
-    st.caption("CV diario = Desv. Std diaria / E(rp). Diario; "
-               "CV anual = Desv. Std Anual / E(rp). Anual. Se muestran como porcentajes. "
+    st.caption("CV anual = Desv. Std Anual / E(rp). Anual. Se muestra como porcentaje. "
                "El CV anual utiliza el rendimiento anualizado mostrado en esta tabla.")
-    if stats.daily_cv is None or stats.annual_cv is None:
-        st.info("CV: N/D cuando el rendimiento del periodo es cero o prácticamente cero "
+    if stats.annual_cv is None:
+        st.info("CV anual: N/D cuando el rendimiento anualizado es cero o prácticamente cero "
                 "o el cálculo anualizado no está disponible.")
     if stats.mean_daily_return < -1e-12:
         st.info("El rendimiento medio es negativo: se conserva el signo negativo del CV. "
@@ -316,7 +314,6 @@ def render_results(context: dict) -> None:
                     "- `Var diario = VAR.S(r_t)`.\n"
                     "- `Desv. Std diaria = DESVEST.M(r_t)`.\n"
                     "- `Desv. Std Anual = Desv. Std diaria × RAÍZ(N)`.\n"
-                    "- `CV diario = Desv. Std diaria / E(rp). Diario`.\n"
                     "- `CV anual = Desv. Std Anual / E(rp). Anual`.")
         st.caption("N es el número de sesiones por año. Las tasas de estas fórmulas son fracciones: 5% = 0.05. "
                    "El CV se calcula como cociente y se multiplica por 100 solo al mostrarlo como porcentaje. "
@@ -364,7 +361,6 @@ def render_results(context: dict) -> None:
         "Var diario": stats.daily_variance,
         "Desv. Std diaria": stats.daily_volatility,
         "Desv. Std Anual": stats.annual_volatility,
-        "CV diario": stats.daily_cv,
         "CV anual": stats.annual_cv,
         "Sesiones por año": stats.periods_per_year,
     }])
